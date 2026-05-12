@@ -25,8 +25,9 @@ type Room struct {
 
 //UserEntity
 type User struct {
-	ID   uint   `gorm:"primaryKey" json:"id"`
-	Name string `json:"name"` 
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Name      string `json:"name"`
+	PublicKey string `json:"public_key"`
 }
 
 //RoomUserEntity N-N table(Room - User)
@@ -43,9 +44,11 @@ type RoomUser struct {
 type Message struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
 	Text     string `json:"text"`
-	
+	EncryptedKey string  `json:"encrypted_key"`
+
 	RoomID   uint   `json:"room_id"`
 	SenderID uint   `json:"sender_id"` 
+
 
 	Room   Room `gorm:"foreignKey:RoomID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	Sender User `gorm:"foreignKey:SenderID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
@@ -134,7 +137,8 @@ func roomsHandler(w http.ResponseWriter, r *http.Request) {
 
 // ユーザー登録用のリクエストを受け取る構造体
 type UserRequest struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	PublicKey string `json:"public_key"`
 }
 
 func usersHandler(w http.ResponseWriter, r *http.Request) {
@@ -146,14 +150,41 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var user User
-		result := db.Where(User{Name: req.Name}).FirstOrCreate(&user)
+		// Nameで検索して、無ければ新規作成、あれば公開鍵を「上書き」する
+		result := db.Where("name = ?", req.Name).First(&user)
 		if result.Error != nil {
-			http.Error(w, "データベース処理に失敗しました", http.StatusInternalServerError)
-			return
+			// 見つからない場合は、新しいユーザーとして登録
+			user = User{Name: req.Name, PublicKey: req.PublicKey}
+			db.Create(&user)
+		} else {
+			// 見つかった場合（再ログイン時）は、公開鍵を最新のものに更新する
+			user.PublicKey = req.PublicKey
+			db.Save(&user)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(user)
+	} else {
+		http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
+	}
+}
+
+func roomUsersListHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		roomIdStr := r.URL.Query().Get("room_id")
+		if roomIdStr == "" {
+			http.Error(w, "RoomIDを指定してください", http.StatusBadRequest)
+			return
+		}
+
+		var users []User
+		// JOINを使って、room_usersテーブルと紐づいているusersの情報を抽出
+		db.Joins("JOIN room_users ON room_users.user_id = users.id").
+			Where("room_users.room_id = ?", roomIdStr).
+			Find(&users)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(users)
 	} else {
 		http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
 	}
@@ -234,6 +265,29 @@ func messageHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
+func searchUserHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		// URLのパラメータから名前を取得（例: /users/search?name=太郎）
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			http.Error(w, "名前が指定されていません", http.StatusBadRequest)
+			return
+		}
+
+		var user User
+		result := db.Where("name = ?", name).First(&user)
+		if result.Error != nil {
+			http.Error(w, "ユーザーが見つかりません", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(user)
+	} else {
+		http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
+	}
+}
+
 
 func main() {
 	// サーバーを立ち上げる前に、DBの準備をする
@@ -243,6 +297,8 @@ func main() {
 	http.HandleFunc("/users", usersHandler)
 	http.HandleFunc("/room_user", roomUserHandler)
 	http.HandleFunc("/messages", messageHandler)
+	http.HandleFunc("/room_users/list", roomUsersListHandler)
+	http.HandleFunc("/user/search", searchUserHandler)
 
 	fmt.Println("サーバー起動: http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
