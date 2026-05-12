@@ -3,13 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
-	"log"
 
+	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"github.com/joho/godotenv"
 )
 
 
@@ -44,7 +45,6 @@ type RoomUser struct {
 type Message struct {
 	ID       uint   `gorm:"primaryKey" json:"id"`
 	Text     string `json:"text"`
-	EncryptedKey string  `json:"encrypted_key"`
 
 	RoomID   uint   `json:"room_id"`
 	SenderID uint   `json:"sender_id"` 
@@ -169,8 +169,41 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func publicKeyHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method == http.MethodPost {
+        // 1. Queryパラメータから user_id を取得
+        userIdStr := r.URL.Query().Get("user_id")
+        if userIdStr == "" {
+            http.Error(w, "UserIDを指定してください", http.StatusBadRequest)
+            return
+        }
+
+        // 2. Request Body から公開鍵（String）を読み込む
+        body, err := io.ReadAll(r.Body)
+        if err != nil {
+            http.Error(w, "ボディの読み込みに失敗しました", http.StatusInternalServerError)
+            return
+        }
+        publicKey := string(body)
+
+        // 3. データベースの更新
+        // ModelにUserを指定し、IDが一致するレコードのPublicKeyカラムのみを更新
+        err = db.Model(&User{}).Where("id = ?", userIdStr).Update("public_key", publicKey).Error
+        if err != nil {
+            http.Error(w, "データベースの更新に失敗しました", http.StatusInternalServerError)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+        fmt.Fprint(w, "公開鍵を更新しました")
+    } else {
+        http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
+    }
+}
+
 func roomUsersListHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		fmt.Println("GET /room_users/list")
 		roomIdStr := r.URL.Query().Get("room_id")
 		if roomIdStr == "" {
 			http.Error(w, "RoomIDを指定してください", http.StatusBadRequest)
@@ -290,7 +323,6 @@ func searchUserHandler(w http.ResponseWriter, r *http.Request) {
 
 
 func main() {
-	// サーバーを立ち上げる前に、DBの準備をする
 	initDB()
 
 	http.HandleFunc("/rooms", roomsHandler)
@@ -298,7 +330,8 @@ func main() {
 	http.HandleFunc("/room_user", roomUserHandler)
 	http.HandleFunc("/messages", messageHandler)
 	http.HandleFunc("/room_users/list", roomUsersListHandler)
-	http.HandleFunc("/user/search", searchUserHandler)
+	http.HandleFunc("/users/search", searchUserHandler)
+	http.HandleFunc("/users/public_key", publicKeyHandler)
 
 	fmt.Println("サーバー起動: http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
