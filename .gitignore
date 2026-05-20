@@ -25,5 +25,5 @@ go.work
 
 #Other
 .env
-
+.vs/*
 # End of https://www.toptal.com/developers/gitignore/api/go
