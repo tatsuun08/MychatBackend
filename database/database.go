@@ -10,20 +10,20 @@ import (
 	"gorm.io/gorm"
 )
 
-//RoomEntity
+// RoomEntity
 type Room struct {
 	ID   uint   `gorm:"primaryKey" json:"id"`
 	Name string `json:"name"`
 }
 
-//UserEntity
+// UserEntity
 type User struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`
 	Name      string `json:"name"`
 	PublicKey string `json:"public_key"`
 }
 
-//RoomUserEntity N-N table(Room - User)
+// RoomUserEntity N-N table(Room - User)
 type RoomUser struct {
 	RoomID uint `gorm:"primaryKey" json:"room_id"`
 	UserID uint `gorm:"primaryKey" json:"user_id"`
@@ -32,15 +32,13 @@ type RoomUser struct {
 	User User `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 }
 
-
-//MessageEntity
+// MessageEntity
 type Message struct {
-	ID       uint   `gorm:"primaryKey" json:"id"`
-	Text     string `json:"text"`
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	Text string `json:"text"`
 
-	RoomID   uint   `json:"room_id"`
-	SenderID uint   `json:"sender_id"` 
-
+	RoomID   uint `json:"room_id"`
+	SenderID uint `json:"sender_id"`
 
 	Room   Room `gorm:"foreignKey:RoomID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	Sender User `gorm:"foreignKey:SenderID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
@@ -49,8 +47,8 @@ type Message struct {
 // データベースの初期設定
 func InitDB() *gorm.DB {
 	var db *gorm.DB
-	
-	{//.envファイルを環境変数として設定
+
+	{ //.envファイルを環境変数として設定
 		err := godotenv.Load()
 		if err != nil {
 			log.Fatalf("Error loading .env file: %v", err)
@@ -64,7 +62,7 @@ func InitDB() *gorm.DB {
 
 	//DB接続用の情報
 	dsn := fmt.Sprintf("host=localhost user=%s password=%s dbname=%s port=%s sslmode=disable", user, password, db_name, port)
-	
+
 	var err error
 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {

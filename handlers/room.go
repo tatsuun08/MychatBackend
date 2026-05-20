@@ -15,24 +15,27 @@ func (s* Server)RoomsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	//RoomEntityの取得
 	case http.MethodGet:
-		//URLから特定の情報を取得http://example.com&user_id=5
-		userIDStr := r.URL.Query().Get("user_id")
+		// userID を取り出す！
+	userID, ok := r.Context().Value(UserIDKey).(uint)
+	if !ok {
+		// 万が一入っていなければ、認証されていないとして弾く
+		http.Error(w, "ユーザー識別失敗", http.StatusUnauthorized)
+		return
+	}
 
-		var rooms []database.Room
+	// ログで確認（Android側から送られてきたIDではなく、JWTから解読した本物のIDです）
+	fmt.Printf("【識別成功】ユーザーID: %d からの部屋一覧リクエストです\n", userID)
 
-		if userIDStr != "" {
-			s.DB.Joins("JOIN room_users ON room_users.room_id = rooms.id").//Join: room_usersとroomでIDが一致するものを結合，ルーム情報とユーザー情報をまとめる
-				Where("room_users.user_id = ?", userIDStr).//指定した文字列とroom_users.user_idが一致するものだけを抽出
-				Limit(20).
-				Find(&rooms)
-		} else {
-			fmt.Println("UserIDを指定してください")
-			return
-		}
-		//ヘッダーにJSONであると教える
-		w.Header().Set("Content-Type", "application/json")
-		//JSONでroomsの値を返す
-		json.NewEncoder(w).Encode(rooms)
+	var rooms []database.Room
+
+	// 💡 取り出した userID を使って安全にDBから検索！
+	s.DB.Joins("JOIN room_users ON room_users.room_id = rooms.id").
+		Where("room_users.user_id = ?", userID). // 👈 ここに直接指定できる
+		Limit(20).
+		Find(&rooms)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(rooms)
 
 	//新たなRoomEntityの保存
 	case http.MethodPost:
