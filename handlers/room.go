@@ -30,7 +30,7 @@ func (s* Server)RoomsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 💡 取り出した userID を使って安全にDBから検索！
 	s.DB.Joins("JOIN room_users ON room_users.room_id = rooms.id").
-		Where("room_users.user_id = ?", userID). // 👈 ここに直接指定できる
+		Where("room_users.user_id = ?", userID). 
 		Limit(20).
 		Find(&rooms)
 
@@ -50,7 +50,7 @@ func (s* Server)RoomsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		result := s.DB.Create(&newRoom)
-		fmt.Printf("保存するデータ: %+v\n", newRoom) // ★中身を表示
+		fmt.Printf("保存するデータ: %+v\n", newRoom) 
 		if result.Error != nil {
 			http.Error(w, "データベースへの保存に失敗しました", http.StatusInternalServerError)
 			return
