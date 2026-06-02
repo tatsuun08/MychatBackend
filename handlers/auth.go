@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +13,14 @@ import (
 	"mychat-backend/database"
 
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/argon2"
+
 	"gorm.io/gorm"
 )
 
 type LoginRequest struct {
 	Name      string `json:"name"`
+	Password  string `json:"password"`
 	PublicKey string `json:"public_key"`
 }
 
@@ -24,6 +28,7 @@ type LoginResponse struct {
 	Token    string `json:"token"`
 	UserID   uint   `json:"user_id"`
 	UserName string `json:"user_name"`
+	KeyBackup string `json:"key_backup"`
 }
 
 func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
@@ -38,12 +43,13 @@ func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 一致するユーザー名を検索
 	var user database.User
 	err := s.DB.Where("name = ?", req.Name).First(&user).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 🙅 ログインなので、存在しない場合は「401 Unauthorized」で弾く
+			// ログインなので、存在しない場合は「401 Unauthorized」で弾く
 			http.Error(w, "ユーザーが見つかりません", http.StatusUnauthorized)
 			return
 		}
@@ -51,15 +57,16 @@ func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "データベースエラーが発生しました", http.StatusInternalServerError)
 		return
 	}
+ 
+	hashed_password := argon2.IDKey([]byte(req.Password), []byte(user.Salt) , 3, 64*1024, 4, 32)
 
-	// 🛡️ 【前回修正分】ログイン（再インストール時など）のたびに、公開鍵を最新のものに上書き！
-	user.PublicKey = req.PublicKey
-	if err := s.DB.Save(&user).Error; err != nil {
-		http.Error(w, "ユーザー情報の更新に失敗しました", http.StatusInternalServerError)
-		return
+	// パスワードが間違っている場合
+	if (user.Password != base64.StdEncoding.EncodeToString(hashed_password)){
+		http.Error(w, "ユーザー名もしくはパスワードが間違っています", http.StatusUnauthorized)
+		return;
 	}
 
-	// 🎫 JWTの作成
+	//  JWTの作成
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"exp":     time.Now().Add(time.Hour * 24).Unix(),
@@ -77,6 +84,7 @@ func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Token:    tokenString,
 		UserID:   user.ID,
 		UserName: user.Name,
+		KeyBackup: user.KeyBackup,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -110,7 +118,6 @@ func (s *Server) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// 💡 【ここからが識別の重要ロジック！】
 		// トークンのクレイム（中身）から user_id を取り出す
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 			userIDFloat, ok := claims["user_id"].(float64) // JWT内の数値はfloat64で解析されます
@@ -120,10 +127,10 @@ func (s *Server) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 			userID := uint(userIDFloat)
 
-			// 💡 リクエストの「コンテキスト（ポケット）」にユーザーIDを入れる
+			// リクエストの「コンテキスト（ポケット）」にユーザーIDを入れる
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
 
-			// 💡 ポケットにIDを入れた「新しいリクエスト」を後ろのハンドラーに引き渡す！
+			// ポケットにIDを入れた「新しいリクエスト」を後ろのハンドラーに引き渡す！
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}

@@ -20,7 +20,10 @@ type Room struct {
 type User struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`
 	Name      string `json:"name"`
+	Password  string `json:"password"`
+	Salt      string `json:"salt"`
 	PublicKey string `json:"public_key"`
+	KeyBackup string `json:"key_backup"`
 }
 
 // RoomUserEntity N-N table(Room - User)
