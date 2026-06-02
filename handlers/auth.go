@@ -28,6 +28,7 @@ type LoginResponse struct {
 	Token    string `json:"token"`
 	UserID   uint   `json:"user_id"`
 	UserName string `json:"user_name"`
+	KeyBackup string `json:"key_backup"`
 }
 
 func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
@@ -65,13 +66,6 @@ func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return;
 	}
 
-	// ログインのたびに、公開鍵を最新のものに上書き！
-	user.PublicKey = req.PublicKey
-	if err := s.DB.Save(&user).Error; err != nil {
-		http.Error(w, "ユーザー情報の更新に失敗しました", http.StatusInternalServerError)
-		return
-	}
-
 	//  JWTの作成
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
@@ -90,6 +84,7 @@ func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Token:    tokenString,
 		UserID:   user.ID,
 		UserName: user.Name,
+		KeyBackup: user.KeyBackup,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
